@@ -2,7 +2,20 @@ import telebot
 from telebot import types
 import json
 import os
+import threading
+from flask import Flask
 
+# Flask сервер для Render
+app = Flask("")
+
+@app.route("/")
+def home():
+    return "Bot is running"
+
+def run():
+    app.run(host="0.0.0.0", port=8000)
+
+# Отримання змінних середовища
 TOKEN = os.getenv("TOKEN")
 if not TOKEN:
     raise ValueError("TOKEN не заданий у змінних середовища")
@@ -180,17 +193,12 @@ def add_sponsor(message):
     show_sponsors_menu(message)
 
 def extract_channel_id(url):
-    # Спроба визначити ID каналу для перевірки підписки
-    # Для телеграм-лінків виду https://t.me/username або https://t.me/+invite_link
-    # Тут можна зробити складніше, поки що вернемо username або лінк як є
-    # Для get_chat_member потрібно username або numeric ID
     if url.startswith("https://t.me/"):
         part = url.split("https://t.me/")[1]
         if part.startswith("+"):
-            # посилання на запрошення - перевірка неможлива
             return None
         else:
-            return part  # username каналу
+            return part
     return None
 
 def edit_join_button(message):
@@ -238,6 +246,8 @@ def publish_post(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"Помилка публікації: {e}")
 
+# Запускаємо Flask сервер у фоновому потоці
+threading.Thread(target=run).start()
 
 # Запуск бота
 print("Бот запущено...")
