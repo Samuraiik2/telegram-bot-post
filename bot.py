@@ -41,7 +41,7 @@ def save_sponsors(sponsors):
     with open(SPONSORS_FILE, "w", encoding="utf-8") as f:
         json.dump(sponsors, f, ensure_ascii=False, indent=2)
 
-# Завантаження / збереження посилання кнопки "Вступити в команду"
+# Завантаження / збереження кнопки "Вступити в команду"
 def load_join_link():
     if not os.path.exists(JOIN_LINK_FILE):
         return {"text": "🚀 Вступити в команду", "url": ""}
@@ -63,10 +63,10 @@ def save_post_text(text):
     with open(POST_TEXT_FILE, "w", encoding="utf-8") as f:
         f.write(text)
 
-# Перевірка підписки користувача на спонсорські канали
+# Перевірка підписки користувача на спонсорські канали (перевіряємо лише з enabled=True)
 def check_user_subscriptions(user_id, sponsors):
     for sponsor in sponsors:
-        if sponsor.get("enabled", True):
+        if sponsor.get("enabled", False):
             try:
                 member = bot.get_chat_member(sponsor["channel_id"], user_id)
                 if member.status in ["left", "kicked"]:
@@ -77,7 +77,6 @@ def check_user_subscriptions(user_id, sponsors):
 
 # --- Команди адміністратора ---
 
-# Привітання / старт
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
     if message.from_user.id != ADMIN_ID:
@@ -127,13 +126,20 @@ def show_sponsors_menu(message):
     sponsors = load_sponsors()
     markup = types.InlineKeyboardMarkup()
     for i, sp in enumerate(sponsors):
-        status = "✅" if sp.get("enabled", True) else "❌"
+        status = "✅" if sp.get("enabled", False) else "❌"
         btn_text = f"{sp['name']} {status}"
         markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"sponsor_toggle_{i}"))
         markup.add(types.InlineKeyboardButton("Видалити", callback_data=f"sponsor_delete_{i}"))
     markup.add(types.InlineKeyboardButton("Додати спонсора ➕", callback_data="sponsor_add"))
     markup.add(types.InlineKeyboardButton("Назад", callback_data="main_menu"))
     bot.send_message(message.chat.id, "Спонсори:", reply_markup=markup)
+
+def show_join_button_menu(message):
+    join_button = load_join_link()
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("Редагувати кнопку", callback_data="join_button_edit"))
+    markup.add(types.InlineKeyboardButton("Назад", callback_data="main_menu"))
+    bot.send_message(message.chat.id, f"Текст: {join_button.get('text', '')}\nПосилання: {join_button.get('url', '')}", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
@@ -157,7 +163,7 @@ def callback_handler(call):
 
     if data.startswith("sponsor_toggle_"):
         idx = int(data.split("_")[-1])
-        sponsors[idx]["enabled"] = not sponsors[idx].get("enabled", True)
+        sponsors[idx]["enabled"] = not sponsors[idx].get("enabled", False)
         save_sponsors(sponsors)
         bot.answer_callback_query(call.id, "Статус спонсора змінено.")
         bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -187,7 +193,12 @@ def add_sponsor(message):
     name = parts[0].strip()
     url = parts[1].strip()
     sponsors = load_sponsors()
-    sponsors.append({"name": name, "url": url, "enabled": True, "channel_id": extract_channel_id(url)})
+    sponsors.append({
+        "name": name,
+        "url": url,
+        "enabled": True,
+        "channel_id": extract_channel_id(url)
+    })
     save_sponsors(sponsors)
     bot.send_message(message.chat.id, f"Спонсор '{name}' доданий.")
     show_sponsors_menu(message)
@@ -220,9 +231,9 @@ def send_post_preview(message):
     join_button = load_join_link()
 
     keyboard = types.InlineKeyboardMarkup()
+    # Додаємо всі кнопки спонсорів без перевірки enabled
     for sp in sponsors:
-        if sp.get("enabled", True):
-            keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
+        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
     if join_button.get("url"):
         keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступити в команду"), url=join_button["url"]))
 
@@ -234,9 +245,9 @@ def publish_post(message):
     join_button = load_join_link()
 
     keyboard = types.InlineKeyboardMarkup()
+    # Всі кнопки спонсорів без фільтрації за enabled
     for sp in sponsors:
-        if sp.get("enabled", True):
-            keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
+        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
     if join_button.get("url"):
         keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступити в команду"), url=join_button["url"]))
 
