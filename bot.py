@@ -128,6 +128,35 @@ def show_sponsors_menu(message):
     markup.add(types.InlineKeyboardButton("Назад", callback_data="main_menu"))
     bot.send_message(message.chat.id, "Спонсори:", reply_markup=markup)
 
+def add_sponsor(message):
+    parts = message.text.split("|")
+    if len(parts) != 2:
+        bot.send_message(message.chat.id, "Невірний формат. Введи у форматі: Назва|https://t.me/канал")
+        return
+    name = parts[0].strip()
+    url = parts[1].strip()
+    channel_id = extract_channel_id(url)
+    if not channel_id:
+        bot.send_message(message.chat.id, "Не вдалося отримати chat_id. Переконайся, що це публічний канал або група.")
+        return
+    sponsors = load_sponsors()
+    sponsors.append({"name": name, "url": url, "check": True, "enabled": True, "channel_id": channel_id})
+    save_sponsors(sponsors)
+    bot.send_message(message.chat.id, f"✅ Спонсор '{name}' доданий.")
+    show_sponsors_menu(message)
+
+def extract_channel_id(url):
+    try:
+        if url.startswith("https://t.me/"):
+            part = url.split("https://t.me/")[1]
+            if part.startswith("+"):  # invite link
+                return None
+            chat = bot.get_chat(part)
+            return chat.id
+    except Exception as e:
+        print("Помилка отримання chat_id:", e)
+    return None
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     if call.from_user.id != ADMIN_ID and call.data != "check_subscription":
@@ -163,46 +192,28 @@ def callback_handler(call):
             join = load_join_link()
             url = join.get("url", "")
             if url:
-                bot.answer_callback_query(call.id, url, show_alert=False)
+                keyboard = types.InlineKeyboardMarkup()
+                keyboard.add(types.InlineKeyboardButton(join.get("text", "🚀 Вступити в команду"), url=url))
+                try:
+                    bot.send_message(user_id, "✅ Перевірка пройдена! Натисни кнопку нижче, щоб вступити в команду:", reply_markup=keyboard)
+                except:
+                    bot.answer_callback_query(call.id, text="✅ Перевірка пройдена! Але бот не може надіслати тобі повідомлення. Напиши йому /start.", show_alert=True)
             else:
                 bot.answer_callback_query(call.id, text="⚠️ Посилання на чат не задано.", show_alert=True)
         else:
             bot.answer_callback_query(call.id, text="❌ Ти не підписаний на всіх спонсорів!", show_alert=True)
 
-def add_sponsor(message):
-    parts = message.text.split("|")
-    if len(parts) != 2:
-        return bot.send_message(message.chat.id, "Невірний формат. Приклад: Назва|https://t.me/назва_або_інвайт")
-
-    name = parts[0].strip()
-    url = parts[1].strip()
-    sponsors = load_sponsors()
-
-    if "+" in url or "joinchat" in url:
-        channel_id = None
-    else:
-        try:
-            chat = bot.get_chat(url)
-            channel_id = chat.id
-        except Exception as e:
-            bot.send_message(message.chat.id, f"⚠️ Не вдалося отримати ID каналу: {e}\nСпонсор буде доданий БЕЗ перевірки підписки.")
-            channel_id = None
-
-    sponsors.append({"name": name, "url": url, "check": True, "channel_id": channel_id})
-    save_sponsors(sponsors)
-    bot.send_message(message.chat.id, f"✅ Спонсор '{name}' доданий.")
-    show_sponsors_menu(message)
-
 def show_join_button_menu(message):
     join = load_join_link()
     bot.send_message(message.chat.id, f"Поточна кнопка:\n{join.get('text')} → {join.get('url')}")
-    msg = bot.send_message(message.chat.id, "Введи новий формат:\nТекст|https://посилання")
+    msg = bot.send_message(message.chat.id, "Введи новий формат:\nТекст|https://посилання_на_чат")
     bot.register_next_step_handler(msg, edit_join_button)
 
 def edit_join_button(message):
     parts = message.text.split("|")
     if len(parts) != 2:
-        return bot.send_message(message.chat.id, "Невірний формат.")
+        bot.send_message(message.chat.id, "Невірний формат. Введи у форматі: Текст|https://посилання")
+        return
     save_join_link({"text": parts[0].strip(), "url": parts[1].strip()})
     bot.send_message(message.chat.id, "Кнопка оновлена ✅")
     show_main_menu(message)
@@ -230,20 +241,20 @@ def publish_post(message):
     keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступити в команду"), callback_data="check_subscription"))
 
     try:
-        sent = bot.send_message(CHANNEL_ID, post_text or "(порожній пост)", reply_markup=keyboard, parse_mode="HTML")
-        save_last_post_id(sent.message_id)
+        msg = bot.send_message(CHANNEL_ID, post_text or "(порожній пост)", reply_markup=keyboard, parse_mode="HTML")
+        save_last_post_id(msg.message_id)
         bot.send_message(message.chat.id, "✅ Пост опубліковано!")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 def edit_published_post(message):
+    last_post_id = load_last_post_id()
+    if not last_post_id:
+        bot.send_message(message.chat.id, "Немає опублікованого поста для редагування.")
+        return
     post_text = load_post_text()
     sponsors = load_sponsors()
     join_button = load_join_link()
-    message_id = load_last_post_id()
-
-    if not message_id:
-        return bot.send_message(message.chat.id, "❌ Немає опублікованого поста для редагування.")
 
     keyboard = types.InlineKeyboardMarkup()
     for sp in sponsors:
@@ -251,11 +262,13 @@ def edit_published_post(message):
     keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступити в команду"), callback_data="check_subscription"))
 
     try:
-        bot.edit_message_text(post_text, chat_id=CHANNEL_ID, message_id=message_id, reply_markup=keyboard, parse_mode="HTML")
-        bot.send_message(message.chat.id, "♻️ Пост оновлено")
+        bot.edit_message_text(post_text or "(порожній пост)", CHANNEL_ID, last_post_id,
+                              reply_markup=keyboard, parse_mode="HTML")
+        bot.send_message(message.chat.id, "✅ Пост відредаговано!")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Не вдалося оновити пост: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка редагування: {e}")
 
+# Запуск Flask (для пінгу) і бота
 threading.Thread(target=run).start()
 print("Бот запущено...")
 bot.infinity_polling()
