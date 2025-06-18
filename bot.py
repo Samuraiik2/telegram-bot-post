@@ -163,10 +163,7 @@ def callback_handler(call):
             join = load_join_link()
             url = join.get("url", "")
             if url:
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton(join.get("text", "Вступити в команду"), url=url))
-                bot.send_message(user_id, "✅ Перевірка пройдена! Ось посилання для вступу:", reply_markup=markup)
-                bot.answer_callback_query(call.id, text="✅ Перевірка пройдена! Посилання надіслано в особисті.", show_alert=True)
+                bot.answer_callback_query(call.id, url, show_alert=False)
             else:
                 bot.answer_callback_query(call.id, text="⚠️ Посилання на чат не задано.", show_alert=True)
         else:
