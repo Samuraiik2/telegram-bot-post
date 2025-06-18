@@ -28,6 +28,7 @@ bot = telebot.TeleBot(TOKEN)
 SPONSORS_FILE = "sponsors.json"
 JOIN_LINK_FILE = "join_link.txt"
 POST_TEXT_FILE = "post_text.txt"
+LAST_POST_ID_FILE = "last_post_id.txt"
 
 # Завантаження/збереження
 def load_sponsors():
@@ -60,6 +61,16 @@ def save_post_text(text):
     with open(POST_TEXT_FILE, "w", encoding="utf-8") as f:
         f.write(text)
 
+def save_last_post_id(message_id):
+    with open(LAST_POST_ID_FILE, "w") as f:
+        f.write(str(message_id))
+
+def load_last_post_id():
+    if not os.path.exists(LAST_POST_ID_FILE):
+        return None
+    with open(LAST_POST_ID_FILE, "r") as f:
+        return int(f.read())
+
 # Перевірка підписок
 def check_user_subscriptions(user_id, sponsors):
     for sponsor in sponsors:
@@ -69,7 +80,7 @@ def check_user_subscriptions(user_id, sponsors):
                 continue
             try:
                 member = bot.get_chat_member(channel_id, user_id)
-                if member.status in ["left", "kicked"]:
+                if member.status not in ["member", "administrator", "creator"]:
                     return False
             except:
                 return False
@@ -87,6 +98,7 @@ def show_main_menu(message):
     markup.row("Редагувати текст поста")
     markup.row("Спонсори", "Кнопка Вступити в команду")
     markup.row("Передогляд поста", "Опублікувати пост")
+    markup.row("Редагувати опублікований пост")
     bot.send_message(message.chat.id, "Обери дію:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID)
@@ -102,6 +114,8 @@ def handle_admin_text(message):
         send_post_preview(message)
     elif message.text == "Опублікувати пост":
         publish_post(message)
+    elif message.text == "Редагувати опублікований пост":
+        edit_published_post(message)
 
 def save_new_post_text(message):
     save_post_text(message.text)
@@ -154,14 +168,17 @@ def callback_handler(call):
     elif data == "check_subscription":
         user_id = call.from_user.id
         if check_user_subscriptions(user_id, sponsors):
-            url = load_join_link().get("url", "")
+            join = load_join_link()
+            url = join.get("url", "")
             if url:
-                bot.send_message(call.message.chat.id, f"✅ Перевірка пройдена!\nПриєднуйся: {url}")
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton(join.get("text", "Вступити в команду"), url=url))
+                bot.send_message(user_id, "✅ Перевірка пройдена! Ось посилання для вступу:", reply_markup=markup)
+                bot.answer_callback_query(call.id, text="✅ Перевірка пройдена! Посилання надіслано в особисті.", show_alert=True)
             else:
-                bot.send_message(call.message.chat.id, "⚠️ Посилання не вказане.")
+                bot.answer_callback_query(call.id, text="⚠️ Посилання на чат не задано.", show_alert=True)
         else:
-            bot.send_message(call.message.chat.id, "❌ Підписка не пройдена. Підпишись на всіх спонсорів з перевіркою.")
-        bot.answer_callback_query(call.id)
+            bot.answer_callback_query(call.id, text="❌ Ти не підписаний на всіх спонсорів!", show_alert=True)
 
 def add_sponsor(message):
     parts = message.text.split("|")
@@ -170,16 +187,18 @@ def add_sponsor(message):
     name = parts[0].strip()
     url = parts[1].strip()
     sponsors = load_sponsors()
-    sponsors.append({"name": name, "url": url, "check": True, "channel_id": extract_channel_id(url)})
+
+    try:
+        chat = bot.get_chat(url)
+        channel_id = chat.id
+    except Exception as e:
+        bot.send_message(message.chat.id, f"Не вдалося отримати ID каналу: {e}")
+        return
+
+    sponsors.append({"name": name, "url": url, "check": True, "channel_id": channel_id})
     save_sponsors(sponsors)
     bot.send_message(message.chat.id, f"✅ Спонсор '{name}' доданий.")
     show_sponsors_menu(message)
-
-def extract_channel_id(url):
-    if url.startswith("https://t.me/"):
-        part = url.split("https://t.me/")[1]
-        return None if part.startswith("+") else part
-    return None
 
 def show_join_button_menu(message):
     join = load_join_link()
@@ -219,12 +238,40 @@ def publish_post(message):
     keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступити в команду"), callback_data="check_subscription"))
 
     try:
-        bot.send_message(CHANNEL_ID, post_text or "(порожній пост)", reply_markup=keyboard, parse_mode="HTML")
-        bot.send_message(message.chat.id, "✅ Пост опубліковано!")
+        sent_message = bot.send_message(CHANNEL_ID, post_text or "(порожній пост)", reply_markup=keyboard, parse_mode="HTML")
+        save_last_post_id(sent_message.message_id)
+        bot.send_message(message.chat.id, f"✅ Пост опубліковано! ID: {sent_message.message_id}")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
-# Старт
+def edit_published_post(message):
+    post_id = load_last_post_id()
+    if not post_id:
+        bot.send_message(message.chat.id, "❌ Немає опублікованого поста для редагування.")
+        return
+
+    post_text = load_post_text()
+    sponsors = load_sponsors()
+    join_button = load_join_link()
+
+    keyboard = types.InlineKeyboardMarkup()
+    for sp in sponsors:
+        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
+    keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступити в команду"), callback_data="check_subscription"))
+
+    try:
+        bot.edit_message_text(
+            chat_id=CHANNEL_ID,
+            message_id=post_id,
+            text=post_text or "(порожній пост)",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        bot.send_message(message.chat.id, "✅ Пост оновлено!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Помилка при оновленні поста: {e}")
+
+# Запуск веб-сервера і бота
 threading.Thread(target=run).start()
 print("Бот запущено...")
 bot.infinity_polling()
