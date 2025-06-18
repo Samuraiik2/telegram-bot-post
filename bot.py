@@ -73,7 +73,8 @@ def check_user_subscriptions(user_id, sponsors):
         if sponsor.get("enabled", True) and sponsor.get("check", True):
             channel_id = sponsor.get("channel_id")
             if not channel_id:
-                continue
+                # Якщо chat_id немає, вважаємо, що підписка не підтверджена
+                return False
             try:
                 member = bot.get_chat_member(channel_id, user_id)
                 if member.status not in ["member", "administrator", "creator"]:
@@ -135,10 +136,7 @@ def add_sponsor(message):
         return
     name = parts[0].strip()
     url = parts[1].strip()
-    channel_id = extract_channel_id(url)
-    if not channel_id:
-        bot.send_message(message.chat.id, "Не вдалося отримати chat_id. Переконайся, що це публічний канал або група.")
-        return
+    channel_id = extract_channel_id(url)  # може повернути None
     sponsors = load_sponsors()
     sponsors.append({"name": name, "url": url, "check": True, "enabled": True, "channel_id": channel_id})
     save_sponsors(sponsors)
