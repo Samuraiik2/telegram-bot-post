@@ -3,9 +3,12 @@ from telebot import types
 import json
 import os
 
-TOKEN = "тут_твій_токен"
-CHANNEL_ID = -1002703116591  # заміни на свій канал
-ADMIN_ID = 123456789  # твій Telegram ID
+TOKEN = os.getenv("TOKEN")
+if not TOKEN:
+    raise ValueError("TOKEN не заданий у змінних середовища")
+
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1002703116591"))
+ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))
 
 bot = telebot.TeleBot(TOKEN)
 
