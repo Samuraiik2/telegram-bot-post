@@ -109,12 +109,16 @@ def check_user_subscriptions(user_id, sponsors):
 
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
+    add_user_to_db(message.from_user)
     if message.from_user.id == ADMIN_ID:
         show_main_menu(message)
     else:
         markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🚀 Вступить в команду", callback_data="check_subscription"))
         markup.add(types.InlineKeyboardButton("Связь с владельцем", url="https://t.me/leader_tigers"))
-        bot.send_message(message.chat.id, "Теперь кликай «Вступить в команду» в посте и получишь ссылку на команду", reply_markup=markup)
+        bot.send_message(message.chat.id,
+            "Нажмите кнопку «Вступить в команду», чтобы получить ссылку на команду после проверки подписки на спонсоров.",
+            reply_markup=markup)
 
 def show_main_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -123,12 +127,12 @@ def show_main_menu(message):
     markup.row("Предпросмотр поста", "Опубликовать пост")
     markup.row("Редактировать опубликованный пост", "Получить список пользователей")
     markup.row("Рассылка пользователям")
-    bot.send_message(message.chat.id, "Выбери действие:", reply_markup=markup)
+    bot.send_message(message.chat.id, "Выберите действие:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID)
 def handle_admin_text(message):
     if message.text == "Редактировать текст поста":
-        msg = bot.send_message(message.chat.id, "Пришли новый текст поста:")
+        msg = bot.send_message(message.chat.id, "Отправьте новый текст поста:")
         bot.register_next_step_handler(msg, save_new_post_text)
     elif message.text == "Спонсоры":
         show_sponsors_menu(message)
@@ -143,7 +147,7 @@ def handle_admin_text(message):
     elif message.text == "Получить список пользователей":
         send_users_list(message)
     elif message.text == "Рассылка пользователям":
-        msg = bot.send_message(message.chat.id, "Введи текст для рассылки:")
+        msg = bot.send_message(message.chat.id, "Введите текст для рассылки:")
         bot.register_next_step_handler(msg, broadcast_message)
 
 def save_new_post_text(message):
@@ -162,72 +166,12 @@ def show_sponsors_menu(message):
     markup.add(types.InlineKeyboardButton("Назад", callback_data="main_menu"))
     bot.send_message(message.chat.id, "Спонсоры:", reply_markup=markup)
 
-def show_join_button_menu(message):
-    join = load_join_link()
-    bot.send_message(message.chat.id, f"Текущая кнопка:\n{join.get('text')} → {join.get('url')}")
-    msg = bot.send_message(message.chat.id, "Введи новый формат:\nТекст|https://ссылка")
-    bot.register_next_step_handler(msg, edit_join_button)
-
-def edit_join_button(message):
-    parts = message.text.split("|")
-    if len(parts) != 2:
-        return bot.send_message(message.chat.id, "Неверный формат.")
-    save_join_link({"text": parts[0].strip(), "url": parts[1].strip()})
-    bot.send_message(message.chat.id, "Кнопка обновлена ✅")
-    show_main_menu(message)
-
-def send_post_preview(message):
-    post_text = load_post_text()
-    sponsors = load_sponsors()
-    join_button = load_join_link()
-
-    keyboard = types.InlineKeyboardMarkup()
-    for sp in sponsors:
-        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
-    keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступить в команду"), callback_data="check_subscription"))
-
-    bot.send_message(message.chat.id, post_text or "(пустой пост)", reply_markup=keyboard, parse_mode="HTML")
-
-def publish_post(message):
-    post_text = load_post_text()
-    sponsors = load_sponsors()
-    join_button = load_join_link()
-
-    keyboard = types.InlineKeyboardMarkup()
-    for sp in sponsors:
-        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
-    keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступить в команду"), callback_data="check_subscription"))
-
-    try:
-        msg = bot.send_message(CHANNEL_ID, post_text or "(пустой пост)", reply_markup=keyboard, parse_mode="HTML")
-        save_last_post_id(msg.message_id)
-        bot.send_message(message.chat.id, "✅ Пост опубликован!")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
-
-def edit_published_post(message):
-    post_text = load_post_text()
-    sponsors = load_sponsors()
-    join_button = load_join_link()
-    last_post_id = load_last_post_id()
-
-    if last_post_id is None:
-        bot.send_message(message.chat.id, "Нет опубликованного поста для редактирования.")
-        return
-
-    keyboard = types.InlineKeyboardMarkup()
-    for sp in sponsors:
-        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
-    keyboard.add(types.InlineKeyboardButton(join_button.get("text", "🚀 Вступить в команду"), callback_data="check_subscription"))
-
-    try:
-        bot.edit_message_text(chat_id=CHANNEL_ID, message_id=last_post_id, text=post_text or "(пустой пост)", reply_markup=keyboard, parse_mode="HTML")
-        bot.send_message(message.chat.id, "✅ Пост отредактирован!")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
-
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
+    if call.from_user.id != ADMIN_ID and call.data != "check_subscription":
+        bot.answer_callback_query(call.id, "Доступ запрещён.")
+        return
+
     data = call.data
     sponsors = load_sponsors()
 
@@ -236,34 +180,44 @@ def callback_handler(call):
         show_main_menu(call.message)
 
     elif data == "sponsor_add":
-        msg = bot.send_message(call.message.chat.id, "Введи название и ссылку через | (Название|https://...):")
+        msg = bot.send_message(call.message.chat.id, "Введите название и ссылку через | (Название|https://...):")
         bot.register_next_step_handler(msg, add_sponsor)
 
     elif data.startswith("sponsor_toggle_"):
         idx = int(data.split("_")[-1])
         sponsors[idx]["check"] = not sponsors[idx].get("check", True)
         save_sponsors(sponsors)
-        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id)
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
         show_sponsors_menu(call.message)
 
     elif data.startswith("sponsor_delete_"):
         idx = int(data.split("_")[-1])
         sponsors.pop(idx)
         save_sponsors(sponsors)
-        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id)
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
         show_sponsors_menu(call.message)
 
     elif data == "check_subscription":
         user_id = call.from_user.id
         if check_user_subscriptions(user_id, sponsors):
-            add_user_to_db(call.from_user)
-            join = load_join_link()
-            keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(types.InlineKeyboardButton(join.get("text", "🚀 Вступить в команду"), url=join.get("url", "")))
-            bot.send_message(user_id, "✅ Подписка подтверждена! Вот ссылка для вступления:", reply_markup=keyboard)
+            join_link = load_join_link()
+            url = join_link.get("url", "")
+            text = join_link.get("text", "🚀 Вступить в команду")
+            if url:
+                # Отправляем личное сообщение с кнопкой на чат (ссылка)
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton(text, url=url))
+                try:
+                    bot.send_message(user_id, "✅ Проверка пройдена! Нажмите кнопку ниже, чтобы присоединиться к команде:", reply_markup=markup)
+                except:
+                    bot.answer_callback_query(call.id, "Не могу отправить вам сообщение. Разрешите боту писать вам.", show_alert=True)
+                    return
+            else:
+                bot.answer_callback_query(call.id, "⚠️ Ссылка на чат не установлена.", show_alert=True)
+                return
             bot.answer_callback_query(call.id)
         else:
-            bot.answer_callback_query(call.id, "❌ Подписка не пройдена. Подпишись на все спонсорские каналы.", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Вы не подписаны на всех спонсоров.", show_alert=True)
 
 def add_sponsor(message):
     parts = message.text.split("|")
@@ -284,16 +238,72 @@ def add_sponsor(message):
     show_sponsors_menu(message)
 
 def extract_channel_id(url):
+    # Возвращаем username или None, если не получилось
     if url.startswith("https://t.me/"):
         part = url.split("https://t.me/")[1]
+        # Если ссылка на публичный канал или группу, возвращаем username без @
         if part.startswith("+"):
             return None
         if part.startswith("@"):
-            return part
-        return part.split("?")[0]
-    elif url.startswith("@"):
-        return url
+            return part[1:]
+        return part.split("?")[0].split("/")[0]
     return None
+
+def show_join_button_menu(message):
+    join = load_join_link()
+    bot.send_message(message.chat.id, f"Текущая кнопка:\n{join.get('text')} → {join.get('url')}")
+    msg = bot.send_message(message.chat.id, "Введите новый формат:\nТекст|https://ссылка")
+    bot.register_next_step_handler(msg, edit_join_button)
+
+def edit_join_button(message):
+    parts = message.text.split("|")
+    if len(parts) != 2:
+        return bot.send_message(message.chat.id, "Неверный формат.")
+    save_join_link({"text": parts[0].strip(), "url": parts[1].strip()})
+    bot.send_message(message.chat.id, "Кнопка обновлена ✅")
+    show_main_menu(message)
+
+def send_post_preview(message):
+    post_text = load_post_text()
+    sponsors = load_sponsors()
+
+    keyboard = types.InlineKeyboardMarkup()
+    for sp in sponsors:
+        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
+
+    bot.send_message(message.chat.id, post_text or "(пустой пост)", reply_markup=keyboard, parse_mode="HTML")
+
+def publish_post(message):
+    post_text = load_post_text()
+    sponsors = load_sponsors()
+
+    keyboard = types.InlineKeyboardMarkup()
+    for sp in sponsors:
+        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
+
+    try:
+        bot.send_message(CHANNEL_ID, post_text or "(пустой пост)", reply_markup=keyboard, parse_mode="HTML")
+        bot.send_message(message.chat.id, "✅ Пост опубликован!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
+
+def edit_published_post(message):
+    last_post_id = load_last_post_id()
+    if not last_post_id:
+        bot.send_message(message.chat.id, "Нет опубликованного поста для редактирования.")
+        return
+    post_text = load_post_text()
+    sponsors = load_sponsors()
+
+    keyboard = types.InlineKeyboardMarkup()
+    for sp in sponsors:
+        keyboard.add(types.InlineKeyboardButton(sp["name"], url=sp["url"]))
+
+    try:
+        bot.edit_message_text(post_text or "(пустой пост)", CHANNEL_ID, last_post_id, reply_markup=keyboard, parse_mode="HTML")
+        bot.send_message(message.chat.id, "✅ Пост обновлен!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка: {e}")
 
 def send_users_list(message):
     users = load_users()
